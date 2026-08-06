@@ -1,0 +1,482 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  USER
+  GUEST
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  WAITING
+  PAUSED
+  COMPLETED
+  CANCELED
+}
+
+enum TaskPrivacy {
+  PUBLIC
+  PRIVATE
+  PARTICIPANTS
+  ADMINS
+}
+
+enum ProgressMode {
+  MANUAL
+  AUTOMATIC
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+enum EventStatus {
+  SCHEDULED
+  CONFIRMED
+  DONE
+  CANCELED
+}
+
+enum Visibility {
+  PRIVATE
+  PUBLIC
+  SHARED
+}
+
+enum PermissionRole {
+  READ
+  EDIT
+  ADMIN
+}
+
+enum AttendanceStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  MAYBE
+}
+
+enum NotificationType {
+  EMAIL
+  POPUP
+  SOUND
+  SYSTEM
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+model User {
+  id               String          @id @default(cuid())
+  name             String
+  email            String          @unique
+  passwordHash     String
+  emailVerifiedAt  DateTime?
+  twoFactorEnabled Boolean         @default(false)
+  avatarUrl        String?
+  phone            String?
+  company          String?
+  position         String?
+  language         String          @default("pt-BR")
+  timezone         String          @default("America/Porto_Velho")
+  theme            Theme           @default(SYSTEM)
+  role             UserRole        @default(USER)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  calendars        Calendar[]
+  createdEvents    Event[]         @relation("CreatedEvents")
+  tasks            Task[]          @relation("TaskOwner")
+  assignedTasks    Task[]          @relation("TaskAssignee")
+  notifications    Notification[]
+  refreshTokens    RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  settings         UserSettings?
+  teams            TeamMember[]
+  auditLogs        AuditLog[]      @relation("AuditActor")
+  comments         Comment[]
+  reminders        Reminder[]
+  eventAttendees   EventAttendee[]
+  colorPresets     ColorPreset[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @db.Text
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model UserSettings {
+  id                 String  @id @default(cuid())
+  userId             String  @unique
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dateFormat         String  @default("dd/MM/yyyy")
+  timeFormat         String  @default("HH:mm")
+  firstDayOfWeek     Int     @default(1)
+  highContrast       Boolean @default(false)
+  emailNotifications Boolean @default(true)
+  popupNotifications Boolean @default(true)
+  soundNotifications Boolean @default(false)
+}
+
+model Calendar {
+  id          String          @id @default(cuid())
+  name        String
+  description String?
+  color       String          @default("#2563eb")
+  isDefault   Boolean         @default(false)
+  ownerId     String
+  owner       User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  events      Event[]
+  tasks       Task[]
+  categories  Category[]
+  shares      CalendarShare[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([ownerId])
+}
+
+model CalendarShare {
+  id         String         @id @default(cuid())
+  calendarId String
+  calendar   Calendar       @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  userId     String?
+  email      String?
+  role       PermissionRole @default(READ)
+  createdAt  DateTime       @default(now())
+
+  @@index([calendarId])
+  @@index([userId])
+}
+
+model Category {
+  id         String    @id @default(cuid())
+  name       String
+  color      String
+  calendarId String?
+  calendar   Calendar? @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  ownerId    String?
+  events     Event[]
+  tasks      Task[]
+
+  @@index([calendarId])
+  @@index([ownerId])
+}
+
+model ColorPreset {
+  id        String   @id @default(cuid())
+  name      String
+  value     String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id               String          @id @default(cuid())
+  calendarId       String
+  calendar         Calendar        @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  createdById      String
+  createdBy        User            @relation("CreatedEvents", fields: [createdById], references: [id])
+  categoryId       String?
+  category         Category?       @relation(fields: [categoryId], references: [id])
+  title            String
+  description      String?         @db.Text
+  location         String?
+  link             String?
+  startsAt         DateTime
+  endsAt           DateTime
+  allDay           Boolean         @default(false)
+  color            String?
+  priority         Priority        @default(NORMAL)
+  status           EventStatus     @default(SCHEDULED)
+  visibility       Visibility      @default(PRIVATE)
+  tags             String?         @db.Text
+  estimatedMinutes Int?
+  spentMinutes     Int?
+  recurrence       RecurrenceRule?
+  attendees        EventAttendee[]
+  reminders        Reminder[]
+  attachments      Attachment[]
+  comments         Comment[]
+  checklistItems   ChecklistItem[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([calendarId, startsAt])
+  @@index([createdById])
+  @@index([status])
+}
+
+model RecurrenceRule {
+  id         String              @id @default(cuid())
+  eventId    String              @unique
+  event      Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  frequency  RecurrenceFrequency
+  interval   Int                 @default(1)
+  byWeekday  String?
+  endsAt     DateTime?
+  count      Int?
+  customRule String?             @db.Text
+}
+
+model EventAttendee {
+  id        String           @id @default(cuid())
+  eventId   String
+  event     Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String?
+  name      String?
+  status    AttendanceStatus @default(PENDING)
+  role      PermissionRole   @default(READ)
+  createdAt DateTime         @default(now())
+
+  @@index([eventId])
+  @@index([userId])
+}
+
+model Reminder {
+  id        String           @id @default(cuid())
+  eventId   String?
+  event     Event?           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  minutes   Int
+  type      NotificationType @default(POPUP)
+  sentAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([eventId])
+  @@index([userId])
+}
+
+model Task {
+  id               String       @id @default(cuid())
+  title            String
+  summary          String?
+  description      String?      @db.Text
+  tags             String?      @db.Text
+  color            String?      @default("#2563eb")
+  icon             String?      @default("check-circle")
+  ownerId          String
+  owner            User         @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  assigneeId       String?
+  assignee         User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  calendarId       String?
+  calendar         Calendar?    @relation(fields: [calendarId], references: [id], onDelete: SetNull)
+  categoryId       String?
+  category         Category?    @relation(fields: [categoryId], references: [id])
+  startsAt         DateTime?
+  dueAt            DateTime?
+  endsAt           DateTime?
+  allDay           Boolean      @default(false)
+  noTime           Boolean      @default(false)
+  priority         Priority     @default(NORMAL)
+  status           TaskStatus   @default(NOT_STARTED)
+  privacy          TaskPrivacy  @default(PRIVATE)
+  progressMode     ProgressMode @default(MANUAL)
+  progress         Int          @default(0)
+  isFavorite       Boolean      @default(false)
+  isArchived       Boolean      @default(false)
+  isPinned         Boolean      @default(false)
+  isDraft          Boolean      @default(false)
+  completedAt      DateTime?
+  subtasks         Subtask[]
+  recurrence       TaskRecurrence?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([ownerId])
+  @@index([assigneeId])
+  @@index([calendarId])
+  @@index([categoryId])
+  @@index([dueAt])
+  @@index([status, isArchived])
+}
+
+model TaskRecurrence {
+  id        String              @id @default(cuid())
+  taskId    String              @unique
+  task      Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  frequency RecurrenceFrequency
+  interval  Int                 @default(1)
+  byWeekday String?
+  endsAt    DateTime?
+  count     Int?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+}
+
+model Subtask {
+  id          String    @id @default(cuid())
+  taskId      String
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title       String
+  completedAt DateTime?
+  sortOrder   Int       @default(0)
+}
+
+model ChecklistItem {
+  id          String    @id @default(cuid())
+  eventId     String
+  event       Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  title       String
+  completedAt DateTime?
+  sortOrder   Int       @default(0)
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  eventId   String?
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  fileName  String
+  mimeType  String
+  size      Int
+  path      String
+  createdAt DateTime @default(now())
+
+  @@index([eventId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventId])
+  @@index([authorId])
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  members     TeamMember[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType @default(SYSTEM)
+  title     String
+  body      String?          @db.Text
+  readAt    DateTime?
+  favorite  Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  entity    String
+  entityId  String
+  action    String
+  oldValue  Json?
+  newValue  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+}
+
+model BackupJob {
+  id         String    @id @default(cuid())
+  fileName   String
+  status     String
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+}
+
+model EmailDelivery {
+  id                String              @id @default(cuid())
+  to                String
+  from              String
+  subject           String
+  html              String              @db.LongText
+  status            EmailDeliveryStatus @default(PENDING)
+  attempts          Int                 @default(0)
+  maxAttempts       Int                 @default(3)
+  nextAttemptAt     DateTime             @default(now())
+  providerMessageId String?
+  lastError         String?              @db.Text
+  sentAt            DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([to, createdAt])
+}

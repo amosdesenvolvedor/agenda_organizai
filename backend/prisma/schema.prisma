@@ -698,6 +698,7 @@ model OrganizationInvitation {
   createdBy      User                         @relation("OrganizationInvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
   invitedUserId  String?
   invitedUser    User?                        @relation("OrganizationInvitationRecipient", fields: [invitedUserId], references: [id], onDelete: SetNull)
+  invitedEmail   String?
   role           OrganizationRole             @default(MEMBER)
   status         OrganizationInvitationStatus @default(PENDING)
   expiresAt      DateTime
@@ -706,6 +707,7 @@ model OrganizationInvitation {
 
   @@index([organizationId, status])
   @@index([invitedUserId, status])
+  @@index([invitedEmail, status])
 }
 
 model TeamMember {

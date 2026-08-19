@@ -20,6 +20,7 @@ import {
 } from "../../services/organization-access.service.js";
 import { asyncHandler } from "../../utils/async-handler.js";
 import { entityIdSchema } from "../../utils/schemas.js";
+import { enqueueEmail } from "../../services/email.service.js";
 
 export const organizationRouter = Router();
 const hashToken = (token: string) =>
@@ -31,6 +32,18 @@ const inviteLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+const escapeHtml = (value: string) =>
+  value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[character]!,
+  );
 
 organizationRouter.get(
   "/invites/:token",
@@ -249,6 +262,7 @@ organizationRouter.post(
       z.object({
         body: z.object({
           userId: entityIdSchema.nullable().optional(),
+          email: z.string().trim().email().max(180).nullable().optional(),
           role: z.enum(["ADMIN", "MEMBER"]).default("MEMBER"),
         }),
       }),
@@ -264,42 +278,75 @@ organizationRouter.post(
       return res
         .status(403)
         .json({ message: "Somente OWNER pode convidar administradores." });
+    const invitedEmail = req.body.email?.trim().toLowerCase() || null;
+    const emailUser = invitedEmail
+      ? await prisma.user.findUnique({
+          where: { email: invitedEmail },
+          select: { id: true },
+        })
+      : null;
+    const invitedUserId = emailUser?.id ?? req.body.userId ?? null;
     if (
       req.body.userId &&
+      !invitedEmail &&
       !(await areConnected(req.user!.sub, req.body.userId))
     )
       return res
         .status(403)
         .json({ message: "Selecione uma pessoa da sua rede." });
-    if (req.body.userId && (await membership(req.params.id, req.body.userId)))
+    if (invitedUserId && (await membership(req.params.id, invitedUserId)))
       return res
         .status(409)
         .json({ message: "Este usuário já pertence à organização." });
     const token = randomBytes(32).toString("base64url");
+    const organization = await prisma.organization.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { name: true },
+    });
+    const inviter = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user!.sub },
+      select: { name: true },
+    });
+    const invitationUrl = `${env.APP_URL}/?organizationInvite=${encodeURIComponent(token)}`;
     const invitation = await prisma.organizationInvitation.create({
       data: {
         tokenHash: hashToken(token),
         organizationId: req.params.id,
         createdById: req.user!.sub,
-        invitedUserId: req.body.userId ?? null,
+        invitedUserId,
+        invitedEmail,
         role: req.body.role,
         expiresAt: new Date(Date.now() + 14 * 86_400_000),
       },
     });
-    if (req.body.userId)
+    if (invitedUserId)
       await prisma.notification.create({
         data: {
-          userId: req.body.userId,
+          userId: invitedUserId,
           type: "SYSTEM",
           title: "Convite para organização",
           body: "Você recebeu um convite para participar de uma organização.",
         },
       });
+    let emailQueued = false;
+    if (invitedEmail) {
+      try {
+        await enqueueEmail({
+          to: invitedEmail,
+          subject: `Convite para ${organization.name} no Agenda OrganizaÍ`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:32px;border:1px solid #e2e8f0;border-radius:12px"><h1 style="color:#0f172a">Convite para ${escapeHtml(organization.name)}</h1><p style="color:#334155;line-height:1.6"><strong>${escapeHtml(inviter.name)}</strong> convidou você para participar desta organização no Agenda OrganizaÍ.</p><p style="margin:28px 0"><a href="${invitationUrl}" style="background:#2563eb;color:white;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Abrir convite</a></p><p style="color:#64748b;font-size:13px">Este convite é individual e expira em 14 dias.</p></div>`,
+        });
+        emailQueued = true;
+      } catch {
+        emailQueued = false;
+      }
+    }
     res.status(201).json({
       invitation: {
         id: invitation.id,
-        url: `${env.APP_URL}/?organizationInvite=${encodeURIComponent(token)}`,
+        url: invitationUrl,
         expiresAt: invitation.expiresAt,
+        emailQueued,
       },
     });
   }),
@@ -330,6 +377,13 @@ organizationRouter.post(
       return res
         .status(403)
         .json({ message: "Este convite pertence a outro usuário." });
+    if (
+      invitation.invitedEmail &&
+      invitation.invitedEmail.toLowerCase() !== req.user!.email.toLowerCase()
+    )
+      return res
+        .status(403)
+        .json({ message: "Este convite pertence a outro e-mail." });
     const now = new Date();
     if (req.body.accept)
       await prisma.$transaction([

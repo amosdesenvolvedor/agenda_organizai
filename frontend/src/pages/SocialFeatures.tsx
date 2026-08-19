@@ -974,21 +974,34 @@ function OrganizationPanel({
   const queryClient = useQueryClient();
   const [inviteUrl, setInviteUrl] = useState("");
   const [userId, setUserId] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteMessage, setInviteMessage] = useState("");
   const canManage = ["OWNER", "ADMIN"].includes(
     organization.membership?.role ?? "",
   );
   const invite = useMutation({
     mutationFn: () =>
-      api<{ invitation: { url: string } }>(
+      api<{ invitation: { url: string; emailQueued: boolean } }>(
         `/api/organizations/${organization.id}/invites`,
         {
           method: "POST",
-          body: JSON.stringify({ userId: userId || null, role: "MEMBER" }),
+          body: JSON.stringify({
+            userId: inviteEmail.trim() ? null : userId || null,
+            email: inviteEmail.trim().toLowerCase() || null,
+            role: "MEMBER",
+          }),
         },
       ),
     onSuccess: ({ invitation }) => {
       setInviteUrl(invitation.url);
-      if (navigator.share)
+      if (inviteEmail.trim()) {
+        setInviteMessage(
+          invitation.emailQueued
+            ? `Convite enviado para ${inviteEmail.trim()}.`
+            : "O link foi criado, mas o e-mail não pôde ser enviado. Você ainda pode copiá-lo.",
+        );
+        setInviteEmail("");
+      } else if (navigator.share)
         navigator
           .share({
             title: organization.name,
@@ -997,6 +1010,12 @@ function OrganizationPanel({
           })
           .catch(() => undefined);
     },
+    onError: (reason) =>
+      setInviteMessage(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível criar o convite.",
+      ),
   });
   const uploadMedia = async (kind: "logo" | "cover", file?: File) => {
     if (!file) return;
@@ -1080,6 +1099,7 @@ function OrganizationPanel({
               className="mt-2 h-10 w-full rounded-md border px-3"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
+              disabled={Boolean(inviteEmail.trim())}
             >
               <option value="">Gerar convite por link</option>
               {networkUsers.map((item) => (
@@ -1088,15 +1108,35 @@ function OrganizationPanel({
                 </option>
               ))}
             </select>
+            <div className="my-3 flex items-center gap-3 text-xs font-semibold uppercase text-slate-400">
+              <span className="h-px flex-1 bg-slate-200" />
+              ou pelo e-mail
+              <span className="h-px flex-1 bg-slate-200" />
+            </div>
+            <Input
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              placeholder="usuario@exemplo.com"
+              value={inviteEmail}
+              onChange={(event) => {
+                setInviteEmail(event.target.value);
+                if (event.target.value) setUserId("");
+              }}
+            />
             <Button
               className="mt-2 w-full"
               type="button"
+              disabled={invite.isPending}
               onClick={() => invite.mutate()}
             >
               <Share2 size={17} />
               Convidar
             </Button>
             {inviteUrl && <Input className="mt-2" readOnly value={inviteUrl} />}
+            {inviteMessage && (
+              <p className="mt-2 text-sm text-slate-600">{inviteMessage}</p>
+            )}
           </div>
         )}
       </div>

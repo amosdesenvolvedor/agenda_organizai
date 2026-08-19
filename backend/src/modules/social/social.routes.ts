@@ -8,6 +8,7 @@ import { asyncHandler } from "../../utils/async-handler.js";
 import { entityIdSchema } from "../../utils/schemas.js";
 import rateLimit from "express-rate-limit";
 import path from "node:path";
+import { createHash, randomBytes } from "node:crypto";
 import {
   createMediaUpload,
   removeUploadedFiles,
@@ -30,6 +31,12 @@ const socialWriteLimit = rateLimit({
 });
 const imageUpload = createMediaUpload("feed", 8 * 1024 * 1024, "image", 4);
 const videoUpload = createMediaUpload("feed", 30 * 1024 * 1024, "video", 1);
+const conversationRequestLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 async function connectedUsers(userId: string) {
   const invites = await prisma.networkInvite.findMany({
@@ -52,6 +59,190 @@ async function connectedUsers(userId: string) {
     )
     .filter((user) => user !== null);
 }
+
+socialRouter.get(
+  "/conversation-requests",
+  asyncHandler(async (req, res) => {
+    const requests = await prisma.conversationRequest.findMany({
+      where: { recipientId: req.user!.sub, status: "PENDING" },
+      include: {
+        sender: {
+          select: { id: true, name: true, email: true, avatarUrl: true },
+        },
+        messages: { orderBy: { createdAt: "asc" }, take: 100 },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    res.json({ requests });
+  }),
+);
+
+socialRouter.post(
+  "/conversation-requests",
+  conversationRequestLimit,
+  validate(
+    z.object({
+      body: z.object({
+        email: z.string().trim().email().max(180),
+        message: z.string().trim().min(1).max(2000),
+      }),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const recipient = await prisma.user.findUnique({
+      where: { email: req.body.email.toLowerCase() },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (!recipient?.isActive)
+      return res.status(404).json({ message: "Usuário não encontrado." });
+    if (recipient.id === req.user!.sub)
+      return res
+        .status(409)
+        .json({ message: "Você não pode enviar uma solicitação para si." });
+    if (await areConnected(req.user!.sub, recipient.id))
+      return res.status(409).json({
+        message: "Este usuário já é seu contato. Abra a conversa existente.",
+      });
+    const previous = await prisma.conversationRequest.findUnique({
+      where: {
+        senderId_recipientId: {
+          senderId: req.user!.sub,
+          recipientId: recipient.id,
+        },
+      },
+    });
+    if (previous?.status === "SPAM")
+      return res.status(403).json({
+        message: "Não é possível enviar novas solicitações para este usuário.",
+      });
+    if (previous?.status === "PENDING") {
+      const message = await prisma.conversationRequestMessage.create({
+        data: { requestId: previous.id, body: req.body.message },
+      });
+      await prisma.notification.create({
+        data: {
+          userId: recipient.id,
+          type: "SYSTEM",
+          title: "Nova mensagem em solicitação",
+          body: req.body.message.slice(0, 180),
+        },
+      });
+      return res.status(201).json({
+        request: { id: previous.id, messageId: message.id, pending: true },
+      });
+    }
+    const request = await prisma.conversationRequest.upsert({
+      where: {
+        senderId_recipientId: {
+          senderId: req.user!.sub,
+          recipientId: recipient.id,
+        },
+      },
+      create: {
+        senderId: req.user!.sub,
+        recipientId: recipient.id,
+        firstMessage: req.body.message,
+        messages: { create: { body: req.body.message } },
+      },
+      update: {
+        firstMessage: req.body.message,
+        status: "PENDING",
+        respondedAt: null,
+      },
+    });
+    await prisma.notification.create({
+      data: {
+        userId: recipient.id,
+        type: "SYSTEM",
+        title: "Nova solicitação de conversa",
+        body: `${req.user!.email} quer iniciar uma conversa com você.`,
+      },
+    });
+    res.status(201).json({ request: { id: request.id } });
+  }),
+);
+
+socialRouter.post(
+  "/conversation-requests/:requestId/respond",
+  validate(
+    z.object({
+      params: z.object({ requestId: entityIdSchema }),
+      body: z.object({ action: z.enum(["ACCEPT", "SPAM"]) }),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const request = await prisma.conversationRequest.findFirst({
+      where: {
+        id: req.params.requestId,
+        recipientId: req.user!.sub,
+        status: "PENDING",
+      },
+      include: { sender: { select: { name: true } } },
+    });
+    if (!request)
+      return res.status(404).json({ message: "Solicitação não encontrada." });
+    const now = new Date();
+    if (req.body.action === "SPAM") {
+      await prisma.conversationRequest.update({
+        where: { id: request.id },
+        data: { status: "SPAM", respondedAt: now },
+      });
+      return res.json({ message: "Solicitação marcada como spam." });
+    }
+    const tokenHash = createHash("sha256")
+      .update(randomBytes(32))
+      .digest("hex");
+    const pendingMessages = await prisma.conversationRequestMessage.findMany({
+      where: { requestId: request.id },
+      orderBy: { createdAt: "asc" },
+    });
+    await prisma.$transaction([
+      prisma.conversationRequest.update({
+        where: { id: request.id },
+        data: { status: "ACCEPTED", respondedAt: now },
+      }),
+      prisma.networkInvite.create({
+        data: {
+          tokenHash,
+          inviterId: request.senderId,
+          acceptedById: req.user!.sub,
+          expiresAt: new Date(Date.now() + 30 * 86_400_000),
+          acceptedAt: now,
+        },
+      }),
+      ...(pendingMessages.length
+        ? pendingMessages.map((message) =>
+            prisma.directMessage.create({
+              data: {
+                senderId: request.senderId,
+                recipientId: req.user!.sub,
+                body: message.body,
+                createdAt: message.createdAt,
+              },
+            }),
+          )
+        : [
+            prisma.directMessage.create({
+              data: {
+                senderId: request.senderId,
+                recipientId: req.user!.sub,
+                body: request.firstMessage,
+              },
+            }),
+          ]),
+      prisma.notification.create({
+        data: {
+          userId: request.senderId,
+          type: "SYSTEM",
+          title: "Solicitação de conversa aceita",
+          body: "Sua solicitação foi aceita. A conversa já está disponível.",
+        },
+      }),
+    ]);
+    res.json({ message: "Conversa e contato aceitos." });
+  }),
+);
 
 socialRouter.get(
   "/conversations",

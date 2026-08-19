@@ -126,6 +126,12 @@ enum OrganizationInvitationStatus {
   EXPIRED
 }
 
+enum ConversationRequestStatus {
+  PENDING
+  ACCEPTED
+  SPAM
+}
+
 model User {
   id               String          @id @default(cuid())
   name             String
@@ -185,6 +191,8 @@ model User {
   createdOrganizations Organization[] @relation("OrganizationCreator")
   createdOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationCreator")
   acceptedOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationRecipient")
+  sentConversationRequests ConversationRequest[] @relation("ConversationRequestSender")
+  receivedConversationRequests ConversationRequest[] @relation("ConversationRequestRecipient")
 }
 
 model NetworkInvite {
@@ -214,6 +222,33 @@ model DirectMessage {
 
   @@index([senderId, recipientId, createdAt])
   @@index([recipientId, readAt])
+}
+
+model ConversationRequest {
+  id          String                    @id @default(cuid())
+  senderId    String
+  sender      User                      @relation("ConversationRequestSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User                      @relation("ConversationRequestRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  firstMessage String                   @db.Text
+  messages    ConversationRequestMessage[]
+  status      ConversationRequestStatus @default(PENDING)
+  respondedAt DateTime?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  @@unique([senderId, recipientId])
+  @@index([recipientId, status, createdAt])
+}
+
+model ConversationRequestMessage {
+  id        String              @id @default(cuid())
+  requestId String
+  request   ConversationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  body      String              @db.Text
+  createdAt DateTime            @default(now())
+
+  @@index([requestId, createdAt])
 }
 
 model FeedPost {

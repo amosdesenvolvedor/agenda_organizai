@@ -2096,6 +2096,10 @@ function ConversationsDialog({
   const currentUser = getStoredUser();
   const [selectedId, setSelectedId] = useState(users[0]?.id ?? "");
   const [draft, setDraft] = useState("");
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestEmail, setRequestEmail] = useState("");
+  const [requestMessage, setRequestMessage] = useState("");
+  const [requestFeedback, setRequestFeedback] = useState("");
   const conversationsQuery = useQuery({
     queryKey: ["conversations"],
     queryFn: () =>
@@ -2116,6 +2120,63 @@ function ConversationsDialog({
       ),
     enabled: Boolean(selectedId),
     refetchInterval: 4000,
+  });
+  const requestsQuery = useQuery({
+    queryKey: ["conversation-requests"],
+    queryFn: () =>
+      api<{
+        requests: Array<{
+          id: string;
+          firstMessage: string;
+          createdAt: string;
+          sender: NetworkUser;
+          messages: Array<{
+            id: string;
+            body: string;
+            createdAt: string;
+          }>;
+        }>;
+      }>("/api/social/conversation-requests"),
+    refetchInterval: 10000,
+  });
+  const createRequest = useMutation({
+    mutationFn: () =>
+      api("/api/social/conversation-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          email: requestEmail.trim().toLowerCase(),
+          message: requestMessage.trim(),
+        }),
+      }),
+    onSuccess: () => {
+      setRequestMessage("");
+      setRequestFeedback(
+        "Mensagem enviada. Você pode continuar enviando enquanto a solicitação estiver pendente.",
+      );
+    },
+    onError: (reason) =>
+      setRequestFeedback(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível enviar a solicitação.",
+      ),
+  });
+  const respondRequest = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "ACCEPT" | "SPAM" }) =>
+      api(`/api/social/conversation-requests/${id}/respond`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      }),
+    onSuccess: (_data, variables) => {
+      setRequestFeedback(
+        variables.action === "ACCEPT"
+          ? "Contato e conversa aceitos."
+          : "Solicitação marcada como spam.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["conversation-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["network-users"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
   });
   const sendMessage = useMutation({
     mutationFn: () =>
@@ -2147,6 +2208,121 @@ function ConversationsDialog({
     >
       <div className="grid min-h-[70dvh] md:grid-cols-[290px_1fr]">
         <aside className="border-b border-slate-200 bg-slate-50 p-3 md:border-b-0 md:border-r">
+          <Button
+            type="button"
+            className="mb-3 w-full"
+            onClick={() => {
+              setRequestOpen((value) => !value);
+              setRequestFeedback("");
+            }}
+          >
+            <Mail size={17} />
+            Nova conversa por e-mail
+          </Button>
+          {requestOpen && (
+            <div className="mb-3 space-y-2 rounded-xl border border-blue-200 bg-white p-3">
+              <Input
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="E-mail do usuário"
+                value={requestEmail}
+                onChange={(event) => setRequestEmail(event.target.value)}
+              />
+              <textarea
+                className="min-h-24 w-full rounded-md border border-slate-200 p-3 text-sm"
+                placeholder="Escreva sua primeira mensagem"
+                maxLength={2000}
+                value={requestMessage}
+                onChange={(event) => setRequestMessage(event.target.value)}
+              />
+              <Button
+                type="button"
+                className="w-full"
+                disabled={
+                  !requestEmail.trim() ||
+                  !requestMessage.trim() ||
+                  createRequest.isPending
+                }
+                onClick={() => createRequest.mutate()}
+              >
+                <Send size={16} />
+                Enviar solicitação
+              </Button>
+            </div>
+          )}
+          {(requestsQuery.data?.requests.length ?? 0) > 0 && (
+            <div className="mb-4 space-y-2">
+              <p className="text-xs font-bold uppercase text-amber-700">
+                Solicitações ({requestsQuery.data?.requests.length})
+              </p>
+              {requestsQuery.data?.requests.map((request) => (
+                <div
+                  key={request.id}
+                  className="rounded-xl border border-amber-200 bg-amber-50 p-3"
+                >
+                  <strong className="block truncate text-sm">
+                    {request.sender.name}
+                  </strong>
+                  <span className="block truncate text-xs text-slate-500">
+                    {request.sender.email}
+                  </span>
+                  <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
+                    {(request.messages.length
+                      ? request.messages
+                      : [
+                          {
+                            id: `${request.id}-first`,
+                            body: request.firstMessage,
+                            createdAt: request.createdAt,
+                          },
+                        ]
+                    ).map((message) => (
+                      <p
+                        key={message.id}
+                        className="rounded-lg bg-white px-2 py-1.5 text-sm text-slate-700"
+                      >
+                        {message.body}
+                      </p>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      className="px-2 text-xs"
+                      disabled={respondRequest.isPending}
+                      onClick={() =>
+                        respondRequest.mutate({
+                          id: request.id,
+                          action: "ACCEPT",
+                        })
+                      }
+                    >
+                      Aceitar
+                    </Button>
+                    <Button
+                      type="button"
+                      className="bg-slate-200 px-2 text-xs text-slate-800 hover:bg-slate-300"
+                      disabled={respondRequest.isPending}
+                      onClick={() =>
+                        respondRequest.mutate({
+                          id: request.id,
+                          action: "SPAM",
+                        })
+                      }
+                    >
+                      Spam
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {requestFeedback && (
+            <p className="mb-3 rounded-lg bg-blue-50 p-2 text-xs text-blue-800">
+              {requestFeedback}
+            </p>
+          )}
           <p className="mb-2 text-xs font-bold uppercase text-slate-500">
             Contatos
           </p>

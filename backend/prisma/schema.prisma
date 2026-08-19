@@ -193,6 +193,7 @@ model User {
   acceptedOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationRecipient")
   sentConversationRequests ConversationRequest[] @relation("ConversationRequestSender")
   receivedConversationRequests ConversationRequest[] @relation("ConversationRequestRecipient")
+  taskTemplates TaskTemplate[]
 }
 
 model NetworkInvite {
@@ -558,6 +559,35 @@ model Task {
   @@index([categoryId])
   @@index([dueAt])
   @@index([status, isArchived])
+}
+
+model TaskTemplate {
+  id          String             @id @default(cuid())
+  ownerId     String
+  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  title       String
+  summary     String?
+  description String?            @db.Text
+  color       String?            @default("#2563eb")
+  icon        String?            @default("check-circle")
+  isActive    Boolean            @default(true)
+  items       TaskTemplateItem[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([ownerId, name])
+  @@index([ownerId, isActive])
+}
+
+model TaskTemplateItem {
+  id         String       @id @default(cuid())
+  templateId String
+  template   TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  title      String
+  sortOrder  Int          @default(0)
+
+  @@index([templateId, sortOrder])
 }
 
 model TaskMessage {

@@ -3382,6 +3382,22 @@ function TaskCreateForm({
   >([]);
   const [personaName, setPersonaName] = useState("");
   const [personaRole, setPersonaRole] = useState("");
+  const templatesQuery = useQuery({
+    queryKey: ["task-templates"],
+    queryFn: () =>
+      api<{
+        templates: Array<{
+          id: string;
+          name: string;
+          title: string;
+          summary?: string;
+          description?: string;
+          color?: string;
+          icon?: string;
+          items: Array<{ id: string; title: string; sortOrder: number }>;
+        }>;
+      }>("/api/tasks/templates"),
+  });
   const { register, handleSubmit, watch, reset, setValue, formState } =
     useForm<TaskCreateValues>({
       resolver: zodResolver(taskCreateSchema),
@@ -3424,6 +3440,21 @@ function TaskCreateForm({
   const endTime = watch("endTime");
   const recurrenceMode = watch("recurrenceMode");
   const recurrenceEndsAt = watch("recurrenceEndsAt");
+
+  function applyTemplate(templateId: string) {
+    const template = templatesQuery.data?.templates.find(
+      (item) => item.id === templateId,
+    );
+    if (!template) return;
+    setValue("title", template.title, { shouldDirty: true });
+    setValue("summary", template.summary ?? "", { shouldDirty: true });
+    setValue("description", template.description ?? "", {
+      shouldDirty: true,
+    });
+    setValue("color", template.color ?? "#2563eb", { shouldDirty: true });
+    setValue("icon", template.icon ?? "check-circle", { shouldDirty: true });
+    setChecklist(template.items.map((item) => item.title));
+  }
 
   async function submit(
     values: TaskCreateValues,
@@ -3545,6 +3576,32 @@ function TaskCreateForm({
           A data de criação e o usuário criador são registrados automaticamente.
         </p>
       </div>
+      {(templatesQuery.data?.templates.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4">
+          <label className="space-y-2 text-sm font-semibold text-slate-800">
+            <span>Usar um modelo pronto</span>
+            <select
+              className="h-11 w-full rounded-md border border-violet-300 bg-white px-3"
+              defaultValue=""
+              onChange={(event) => {
+                applyTemplate(event.target.value);
+                event.target.value = "";
+              }}
+            >
+              <option value="">Selecione um template</option>
+              {templatesQuery.data?.templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name} ({template.items.length} itens)
+                </option>
+              ))}
+            </select>
+            <span className="block text-xs font-normal text-slate-600">
+              O título, a descrição e o checklist serão preenchidos e poderão
+              ser editados antes de salvar.
+            </span>
+          </label>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-2 text-sm font-semibold text-slate-700 sm:col-span-2">
           <span>Título *</span>

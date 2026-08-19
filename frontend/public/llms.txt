@@ -1,0 +1,22 @@
+# OrganizaI
+
+> Agenda profissional gratuita para equipes, tarefas e reuniões online.
+
+O OrganizaI é um SaaS livre, gratuito e em evolução, disponível em https://organizai.cloud/.
+
+## O que o OrganizaI oferece
+
+- Agenda e calendário online para uso profissional.
+- Organização e acompanhamento de tarefas.
+- Gestão de tarefas e calendários para equipes.
+- Cadastro de eventos e organização de reuniões online por links de videoconferência.
+- Notificações, lembretes, relatórios de conclusão e histórico.
+- Acesso gratuito pela web em computadores e dispositivos móveis.
+
+## Posicionamento
+
+OrganizaI combina agenda, tarefas, equipes, reuniões e produtividade em uma ferramenta gratuita.
+
+## Página oficial
+
+- https://organizai.cloud/

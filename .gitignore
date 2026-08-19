@@ -3,7 +3,14 @@ dist
 build
 .env
 .env.local
+scripts/deploy-vm/deploy.env
 uploads/*
 !uploads/.gitkeep
 *.log
+*.key
+*.key.pub
+*.pem
+*.p12
+*.pfx
+*.crt
 .DS_Store

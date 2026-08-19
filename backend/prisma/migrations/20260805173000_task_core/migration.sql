@@ -31,4 +31,3 @@ ALTER TABLE `Task` ADD CONSTRAINT `Task_calendarId_fkey` FOREIGN KEY (`calendarI
 
 -- RedefineIndex
 CREATE INDEX `Task_categoryId_idx` ON `Task`(`categoryId`);
-DROP INDEX `Task_categoryId_fkey` ON `Task`;

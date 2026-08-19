@@ -22,8 +22,14 @@ export type EventItem = {
   status: string;
   priority: string;
   location?: string;
+  link?: string;
+  teamId?: string;
+  team?: { id: string; name: string };
   description?: string;
-  attendees?: Array<{ id: string; email?: string; name?: string; status: string }>;
+  feedback?: string;
+  discussionTopics?: string;
+  completedAt?: string;
+  attendees?: Array<{ id: string; userId?: string; email?: string; name?: string; status: string }>;
 };
 
 export type CalendarItem = {
@@ -59,6 +65,11 @@ export function storeSession(session: LoginResponse) {
 export function getStoredUser() {
   const raw = localStorage.getItem("agenda_organizai_user");
   return raw ? (JSON.parse(raw) as LoginResponse["user"]) : null;
+}
+
+export function updateStoredUser(user: Partial<LoginResponse["user"]>) {
+  const current = getStoredUser();
+  if (current) localStorage.setItem("agenda_organizai_user", JSON.stringify({ ...current, ...user }));
 }
 
 let refreshPromise: Promise<string | null> | null = null;
@@ -117,6 +128,30 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function authenticatedRaw(path: string, init: RequestInit) {
+  const send = (token: string | null) => fetch(`${API_URL}${path}`, { ...init, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers } });
+  let response = await send(getToken());
+  if (response.status === 401) {
+    const renewedToken = await renewAccessToken();
+    if (renewedToken) response = await send(renewedToken);
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "Erro inesperado." }));
+    throw new Error(error.message ?? "Erro inesperado.");
+  }
+  return response;
+}
+
+export async function apiForm<T>(path: string, formData: FormData): Promise<T> {
+  const response = await authenticatedRaw(path, { method: "POST", body: formData });
+  return response.json() as Promise<T>;
+}
+
+export async function apiBlob(path: string) {
+  const response = await authenticatedRaw(path, { method: "GET" });
+  return response.blob();
+}
+
 export const authApi = {
   login: (email: string, password: string, remember: boolean) =>
     api<LoginResponse>("/api/auth/login", {
@@ -133,5 +168,8 @@ export const authApi = {
   }),
   resetPassword: (token: string, password: string) => api<{ message: string }>("/api/auth/reset-password", {
     method: "POST", body: JSON.stringify({ token, password })
+  }),
+  exchangeOAuthCode: (code: string) => api<LoginResponse>("/api/auth/oauth/exchange", {
+    method: "POST", body: JSON.stringify({ code })
   })
 };

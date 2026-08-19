@@ -15,6 +15,10 @@ import { calendarRouter } from "./modules/calendar/calendar.routes.js";
 import { eventRouter } from "./modules/events/event.routes.js";
 import { notificationRouter } from "./modules/notifications/notification.routes.js";
 import { taskRouter } from "./modules/tasks/task.routes.js";
+import { teamRouter } from "./modules/teams/team.routes.js";
+import { userRouter } from "./modules/users/user.routes.js";
+import { socialRouter } from "./modules/social/social.routes.js";
+import { organizationRouter } from "./modules/organizations/organization.routes.js";
 
 export const app = express();
 
@@ -33,6 +37,10 @@ app.use("/api/auth", authRouter);
 app.use("/api/calendars", calendarRouter);
 app.use("/api/events", eventRouter);
 app.use("/api/tasks", taskRouter);
+app.use("/api/teams", teamRouter);
+app.use("/api/users", userRouter);
+app.use("/api/social", socialRouter);
+app.use("/api/organizations", organizationRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/attachments", attachmentRouter);

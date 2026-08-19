@@ -97,21 +97,63 @@ enum RecurrenceFrequency {
   CUSTOM
 }
 
+enum PostVisibility {
+  PUBLIC
+  NETWORK
+  PRIVATE
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum OrganizationMemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum OrganizationInvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
 model User {
   id               String          @id @default(cuid())
   name             String
+  username         String?         @unique
   email            String          @unique
   passwordHash     String
   emailVerifiedAt  DateTime?
   twoFactorEnabled Boolean         @default(false)
   avatarUrl        String?
+  avatarPath       String?
+  coverPath        String?
+  bio              String?         @db.Text
+  profession       String?
   phone            String?
   company          String?
   position         String?
+  city             String?
+  region           String?
+  country          String?
+  website          String?
+  professionalLinks Json?
+  socialLinks      Json?
   language         String          @default("pt-BR")
   timezone         String          @default("America/Porto_Velho")
   theme            Theme           @default(SYSTEM)
   role             UserRole        @default(USER)
+  isActive         Boolean         @default(true)
+  deactivatedAt    DateTime?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   calendars        Calendar[]
@@ -121,6 +163,8 @@ model User {
   notifications    Notification[]
   refreshTokens    RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  oauthLoginCodes OAuthLoginCode[]
+  pushSubscriptions PushSubscription[]
   settings         UserSettings?
   teams            TeamMember[]
   auditLogs        AuditLog[]      @relation("AuditActor")
@@ -128,6 +172,129 @@ model User {
   reminders        Reminder[]
   eventAttendees   EventAttendee[]
   colorPresets     ColorPreset[]
+  taskMessages     TaskMessage[]
+  observedTasks    TaskObserver[]
+  sentNetworkInvites NetworkInvite[] @relation("NetworkInviteSender")
+  acceptedNetworkInvites NetworkInvite[] @relation("NetworkInviteRecipient")
+  sentDirectMessages DirectMessage[] @relation("DirectMessageSender")
+  receivedDirectMessages DirectMessage[] @relation("DirectMessageRecipient")
+  feedPosts FeedPost[]
+  feedLikes FeedLike[]
+  feedComments FeedComment[]
+  organizations OrganizationMember[]
+  createdOrganizations Organization[] @relation("OrganizationCreator")
+  createdOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationCreator")
+  acceptedOrganizationInvitations OrganizationInvitation[] @relation("OrganizationInvitationRecipient")
+}
+
+model NetworkInvite {
+  id           String    @id @default(cuid())
+  tokenHash    String    @unique
+  inviterId    String
+  inviter      User      @relation("NetworkInviteSender", fields: [inviterId], references: [id], onDelete: Cascade)
+  acceptedById String?
+  acceptedBy   User?     @relation("NetworkInviteRecipient", fields: [acceptedById], references: [id], onDelete: SetNull)
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([inviterId, acceptedAt])
+  @@index([acceptedById, acceptedAt])
+}
+
+model DirectMessage {
+  id          String   @id @default(cuid())
+  senderId    String
+  sender      User     @relation("DirectMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User     @relation("DirectMessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  body        String   @db.Text
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([senderId, recipientId, createdAt])
+  @@index([recipientId, readAt])
+}
+
+model FeedPost {
+  id        String        @id @default(cuid())
+  authorId  String
+  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String        @db.Text
+  visibility PostVisibility @default(PUBLIC)
+  media     FeedMedia[]
+  likes     FeedLike[]
+  comments  FeedComment[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([createdAt])
+  @@index([authorId, createdAt])
+}
+
+model FeedMedia {
+  id        String    @id @default(cuid())
+  postId    String
+  post      FeedPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  type      MediaType
+  fileName  String
+  mimeType  String
+  size      Int
+  path      String
+  createdAt DateTime  @default(now())
+
+  @@index([postId, type])
+}
+
+model FeedLike {
+  id        String   @id @default(cuid())
+  postId    String
+  post      FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([userId])
+}
+
+model FeedComment {
+  id        String   @id @default(cuid())
+  postId    String
+  post      FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([postId, createdAt])
+  @@index([authorId])
+}
+
+model PushSubscription {
+  id           String   @id @default(cuid())
+  endpointHash String   @unique
+  endpoint     String   @db.Text
+  p256dh       String   @db.Text
+  auth         String   @db.Text
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model OAuthLoginCode {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 model PasswordResetToken {
@@ -226,10 +393,14 @@ model Event {
   calendar         Calendar        @relation(fields: [calendarId], references: [id], onDelete: Cascade)
   createdById      String
   createdBy        User            @relation("CreatedEvents", fields: [createdById], references: [id])
+  teamId           String?
+  team             Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
   categoryId       String?
   category         Category?       @relation(fields: [categoryId], references: [id])
   title            String
   description      String?         @db.Text
+  feedback         String?         @db.Text
+  discussionTopics String?         @db.Text
   location         String?
   link             String?
   startsAt         DateTime
@@ -250,9 +421,11 @@ model Event {
   checklistItems   ChecklistItem[]
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
+  completedAt      DateTime?
 
   @@index([calendarId, startsAt])
   @@index([createdById])
+  @@index([teamId])
   @@index([status])
 }
 
@@ -311,6 +484,8 @@ model Task {
   owner            User         @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   assigneeId       String?
   assignee         User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  teamId           String?
+  team             Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
   calendarId       String?
   calendar         Calendar?    @relation(fields: [calendarId], references: [id], onDelete: SetNull)
   categoryId       String?
@@ -330,17 +505,76 @@ model Task {
   isPinned         Boolean      @default(false)
   isDraft          Boolean      @default(false)
   completedAt      DateTime?
+  startedAt        DateTime?
+  executionReport  String?      @db.Text
   subtasks         Subtask[]
+  messages         TaskMessage[]
+  observers        TaskObserver[]
+  personas         TaskPersona[]
   recurrence       TaskRecurrence?
+  externalShares   TaskExternalShare[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
   @@index([ownerId])
   @@index([assigneeId])
+  @@index([teamId])
   @@index([calendarId])
   @@index([categoryId])
   @@index([dueAt])
   @@index([status, isArchived])
+}
+
+model TaskMessage {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String?  @db.Text
+  imagePath String?
+  imageName String?
+  imageMime String?
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@index([authorId])
+}
+
+model TaskObserver {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+  @@index([userId])
+}
+
+model TaskPersona {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  name      String
+  role      String
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}
+
+model TaskExternalShare {
+  id        String    @id @default(cuid())
+  taskId    String
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  email     String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([taskId, revokedAt])
 }
 
 model TaskRecurrence {
@@ -406,8 +640,72 @@ model Team {
   name        String
   description String?
   members     TeamMember[]
+  events      Event[]
+  tasks       Task[]
+  organizationId String?
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  category    String?
+  city        String?
+  region      String?
+  country     String?
+  website     String?
+  logoPath    String?
+  coverPath   String?
+  isPublic    Boolean  @default(false)
+  createdById String
+  createdBy   User     @relation("OrganizationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  members     OrganizationMember[]
+  invitations OrganizationInvitation[]
+  teams       Team[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+}
+
+model OrganizationMember {
+  id             String                   @id @default(cuid())
+  organizationId String
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrganizationRole         @default(MEMBER)
+  status         OrganizationMemberStatus @default(ACTIVE)
+  joinedAt       DateTime                 @default(now())
+  createdAt      DateTime                 @default(now())
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+}
+
+model OrganizationInvitation {
+  id             String                       @id @default(cuid())
+  tokenHash      String                       @unique
+  organizationId String
+  organization   Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdById    String
+  createdBy      User                         @relation("OrganizationInvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  invitedUserId  String?
+  invitedUser    User?                        @relation("OrganizationInvitationRecipient", fields: [invitedUserId], references: [id], onDelete: SetNull)
+  role           OrganizationRole             @default(MEMBER)
+  status         OrganizationInvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  respondedAt    DateTime?
+  createdAt      DateTime                     @default(now())
+
+  @@index([organizationId, status])
+  @@index([invitedUserId, status])
 }
 
 model TeamMember {

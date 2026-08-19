@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$(dirname -- "$0")/lib/common.sh"
+require_root
+load_config
+validate_config
+
+ENV_FILE="${APP_DIR}/backend/.env"
+install -d -o "${APP_USER}" -g "${APP_GROUP}" "${APP_DIR}/backend"
+
+umask 077
+cat > "${ENV_FILE}" <<EOF
+NODE_ENV=production
+PORT=${APP_PORT}
+APP_URL=${APP_URL}
+DATABASE_URL=mysql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+ACCESS_TOKEN_TTL=15m
+REFRESH_TOKEN_TTL=7d
+BCRYPT_ROUNDS=12
+EMAIL_PROVIDER=${EMAIL_PROVIDER:-resend}
+RESEND_API_KEY=${RESEND_API_KEY:-}
+SMTP_HOST=${SMTP_HOST:-}
+SMTP_PORT=${SMTP_PORT:-465}
+SMTP_SECURE=${SMTP_SECURE:-true}
+SMTP_USER=${SMTP_USER:-}
+SMTP_PASS=${SMTP_PASS:-}
+MAIL_FROM=${MAIL_FROM:-}
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:suporte@organizai.cloud}
+EOF
+chown "${APP_USER}:${APP_GROUP}" "${ENV_FILE}"
+chmod 600 "${ENV_FILE}"
+
+info "Ambiente de produção salvo com permissão 600"
+printf 'Próximo: sudo bash scripts/deploy-vm/06-build.sh\n'

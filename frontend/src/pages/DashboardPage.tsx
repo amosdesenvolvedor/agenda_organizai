@@ -204,6 +204,18 @@ export function DashboardPage({ onLogout }: { onLogout: () => void }) {
   const user = getStoredUser();
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("profileVerification") || !user?.id) return;
+    setProfileUserId(user.id);
+    params.delete("profileVerification");
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${params.size ? `?${params}` : ""}`,
+    );
+  }, [user?.id]);
+
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: () => api<{ events: EventItem[] }>("/api/events"),

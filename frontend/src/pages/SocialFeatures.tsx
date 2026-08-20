@@ -13,6 +13,7 @@ import {
   Pencil,
   Send,
   Share2,
+  ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
@@ -72,6 +73,9 @@ type Profile = {
   own: boolean;
   connected: boolean;
   completion: number;
+  verified: boolean;
+  profileVerifiedAt?: string;
+  verificationMissing?: string[];
   connectionCount: number;
   posts: Post[];
   organizations: Array<{
@@ -427,6 +431,7 @@ export function SocialProfileDialog({
     website: "",
   });
   const [selectedOrg, setSelectedOrg] = useState<string>();
+  const [verificationMessage, setVerificationMessage] = useState("");
   useEffect(() => {
     if (profile)
       setForm({
@@ -508,6 +513,19 @@ export function SocialProfileDialog({
       queryClient.invalidateQueries({ queryKey: ["profile", userId] });
     },
   });
+  const requestVerification = useMutation({
+    mutationFn: () =>
+      api<{ message: string }>("/api/users/profiles/me/verification/request", {
+        method: "POST",
+      }),
+    onSuccess: ({ message }) => setVerificationMessage(message),
+    onError: (reason) =>
+      setVerificationMessage(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível solicitar a verificação.",
+      ),
+  });
   if (!profile)
     return (
       <Shell title="Perfil" onClose={onClose}>
@@ -579,7 +597,15 @@ export function SocialProfileDialog({
               )}
             </div>
             <div className="min-w-0 flex-1 pb-2">
-              <h1 className="text-2xl font-bold">{profile.name}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold">{profile.name}</h1>
+                {profile.verified && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700">
+                    <ShieldCheck size={15} />
+                    Verificado
+                  </span>
+                )}
+              </div>
               {profile.username && (
                 <p className="text-sm text-slate-500">@{profile.username}</p>
               )}
@@ -610,6 +636,40 @@ export function SocialProfileDialog({
                   style={{ width: `${profile.completion}%` }}
                 />
               </div>
+            </div>
+          )}
+          {profile.own && !profile.verified && (
+            <div className="my-4 rounded-xl border border-violet-200 bg-violet-50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <strong className="flex items-center gap-2">
+                    <ShieldCheck size={18} className="text-violet-700" />
+                    Verificar perfil por e-mail
+                  </strong>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {profile.verificationMissing?.length
+                      ? `Complete os campos pendentes (${profile.verificationMissing.length}) para solicitar o selo.`
+                      : "Seu perfil está completo. Enviaremos um link para seu e-mail."}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  disabled={
+                    Boolean(profile.verificationMissing?.length) ||
+                    requestVerification.isPending
+                  }
+                  onClick={() => requestVerification.mutate()}
+                >
+                  {requestVerification.isPending
+                    ? "Enviando..."
+                    : "Enviar verificação"}
+                </Button>
+              </div>
+              {verificationMessage && (
+                <p className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-700">
+                  {verificationMessage}
+                </p>
+              )}
             </div>
           )}
           <nav className="mt-4 flex gap-1 overflow-x-auto border-b">

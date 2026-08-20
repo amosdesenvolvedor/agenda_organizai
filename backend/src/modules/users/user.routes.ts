@@ -19,11 +19,46 @@ import {
   connectedUserIds,
   visiblePostWhere,
 } from "../../services/social-access.service.js";
+import { enqueueEmail } from "../../services/email.service.js";
 
 export const userRouter = Router();
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function profileVerificationMissing(user: {
+  name: string;
+  avatarPath: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+  profession: string | null;
+  position: string | null;
+  company: string | null;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  phone: string | null;
+  website: string | null;
+  professionalLinks: unknown;
+}) {
+  const links = Array.isArray(user.professionalLinks)
+    ? user.professionalLinks
+    : [];
+  return [
+    ["name", user.name?.trim()],
+    ["avatar", user.avatarPath || user.avatarUrl],
+    ["bio", user.bio?.trim()],
+    ["profession", user.profession?.trim() || user.position?.trim()],
+    ["company", user.company?.trim()],
+    ["city", user.city?.trim()],
+    ["region", user.region?.trim()],
+    ["country", user.country?.trim()],
+    ["phone", user.phone?.trim()],
+    ["professionalLink", user.website?.trim() || links.length > 0],
+  ]
+    .filter(([, value]) => !value)
+    .map(([field]) => field as string);
 }
 
 userRouter.get(
@@ -50,12 +85,62 @@ userRouter.get(
   }),
 );
 
+userRouter.get(
+  "/profiles/verification/:token/confirm",
+  validate(
+    z.object({ params: z.object({ token: z.string().min(32).max(512) }) }),
+  ),
+  asyncHandler(async (req, res) => {
+    const verification = await prisma.profileVerificationToken.findUnique({
+      where: { tokenHash: hashToken(req.params.token) },
+      include: { user: true },
+    });
+    if (
+      !verification ||
+      verification.usedAt ||
+      verification.expiresAt <= new Date()
+    )
+      return res.redirect(`${env.APP_URL}/?profileVerification=invalid`);
+    if (profileVerificationMissing(verification.user).length)
+      return res.redirect(`${env.APP_URL}/?profileVerification=incomplete`);
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.profileVerificationToken.update({
+        where: { id: verification.id },
+        data: { usedAt: now },
+      }),
+      prisma.user.update({
+        where: { id: verification.userId },
+        data: {
+          profileVerifiedAt: now,
+          emailVerifiedAt: verification.user.emailVerifiedAt ?? now,
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          actorId: verification.userId,
+          entity: "UserProfile",
+          entityId: verification.userId,
+          action: "VERIFY_EMAIL",
+        },
+      }),
+    ]);
+    return res.redirect(`${env.APP_URL}/?profileVerification=success`);
+  }),
+);
+
 userRouter.use(requireAuth);
 
 const profileUpload = createMediaUpload("profiles", 6 * 1024 * 1024, "image");
 const profileUploadLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const profileVerificationLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -124,6 +209,7 @@ userRouter.get(
         phone: true,
         professionalLinks: true,
         socialLinks: true,
+        profileVerifiedAt: true,
         createdAt: true,
         organizations: {
           where: { status: "ACTIVE" },
@@ -170,20 +256,9 @@ userRouter.get(
       orderBy: { createdAt: "desc" },
       take: 30,
     });
-    const relevant = [
-      user.avatarPath,
-      user.coverPath,
-      user.bio,
-      user.profession,
-      user.position,
-      user.company,
-      user.city,
-      user.region,
-      user.country,
-      user.website,
-    ];
+    const verificationMissing = profileVerificationMissing(user);
     const completion = Math.round(
-      (relevant.filter(Boolean).length / relevant.length) * 100,
+      ((10 - verificationMissing.length) / 10) * 100,
     );
     res.json({
       profile: {
@@ -203,6 +278,13 @@ userRouter.get(
         connected,
         own,
         completion,
+        verified:
+          Boolean(user.profileVerifiedAt) && !verificationMissing.length,
+        profileVerifiedAt:
+          user.profileVerifiedAt && !verificationMissing.length
+            ? user.profileVerifiedAt
+            : null,
+        verificationMissing: own ? verificationMissing : undefined,
         connectionCount:
           user._count.sentNetworkInvites + user._count.acceptedNetworkInvites,
         organizations: user.organizations.filter(
@@ -219,6 +301,41 @@ userRouter.get(
           })),
         })),
       },
+    });
+  }),
+);
+
+userRouter.post(
+  "/profiles/me/verification/request",
+  profileVerificationLimit,
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user!.sub },
+    });
+    const missing = profileVerificationMissing(user);
+    if (missing.length)
+      return res.status(422).json({
+        message: "Complete os campos obrigatórios antes da verificação.",
+        missingFields: missing,
+      });
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 30 * 60_000);
+    await prisma.profileVerificationToken.create({
+      data: {
+        tokenHash: hashToken(token),
+        userId: user.id,
+        expiresAt,
+      },
+    });
+    const verificationUrl = `${env.APP_URL}/api/users/profiles/verification/${encodeURIComponent(token)}/confirm`;
+    await enqueueEmail({
+      to: user.email,
+      subject: "Confirme seu perfil no Agenda OrganizaÍ",
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:32px;border:1px solid #e2e8f0;border-radius:12px"><h1 style="color:#0f172a">Verifique seu perfil</h1><p style="color:#334155;line-height:1.6">Seu perfil está completo. Confirme que este e-mail pertence a você para receber o selo de perfil verificado.</p><p style="margin:28px 0"><a href="${verificationUrl}" style="background:#2563eb;color:white;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Confirmar perfil</a></p><p style="color:#64748b;font-size:13px">Este link é individual e expira em 30 minutos.</p></div>`,
+    });
+    res.status(202).json({
+      message: "Enviamos o link de verificação para seu e-mail.",
+      expiresAt,
     });
   }),
 );

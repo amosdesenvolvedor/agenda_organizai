@@ -139,6 +139,7 @@ model User {
   email            String          @unique
   passwordHash     String
   emailVerifiedAt  DateTime?
+  profileVerifiedAt DateTime?
   twoFactorEnabled Boolean         @default(false)
   avatarUrl        String?
   avatarPath       String?
@@ -170,6 +171,7 @@ model User {
   refreshTokens    RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   oauthLoginCodes OAuthLoginCode[]
+  profileVerificationTokens ProfileVerificationToken[]
   pushSubscriptions PushSubscription[]
   settings         UserSettings?
   teams            TeamMember[]
@@ -334,6 +336,18 @@ model OAuthLoginCode {
 }
 
 model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model ProfileVerificationToken {
   id        String    @id @default(cuid())
   tokenHash String    @unique
   userId    String

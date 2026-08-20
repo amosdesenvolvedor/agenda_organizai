@@ -14,6 +14,7 @@ import {
   Send,
   Share2,
   ShieldCheck,
+  Upload,
   UserRound,
   X,
 } from "lucide-react";
@@ -572,28 +573,49 @@ export function SocialProfileDialog({
         </div>
         <div className="mx-auto max-w-5xl px-3">
           <div className="relative -mt-14 flex flex-col items-start gap-3 sm:flex-row sm:items-end">
-            <div className="relative h-28 w-28 overflow-hidden rounded-full border-4 border-white bg-blue-100 shadow">
-              {profile.avatarUrl ? (
-                <SecureMedia
-                  path={profile.avatarUrl}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="grid h-full place-items-center text-3xl font-bold text-blue-700">
-                  {profile.name[0]}
-                </span>
-              )}
-              {profile.own && (
-                <label className="absolute bottom-1 right-1 grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-blue-700 text-white">
-                  <Camera size={16} />
-                  <input
-                    className="hidden"
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={(e) => upload("avatar", e.target.files?.[0])}
+            <div className="flex shrink-0 flex-col items-center gap-2">
+              <div className="relative h-28 w-28 overflow-hidden rounded-full border-4 border-white bg-blue-100 shadow">
+                {profile.avatarUrl ? (
+                  <SecureMedia
+                    path={profile.avatarUrl}
+                    className="h-full w-full object-cover"
                   />
-                </label>
+                ) : (
+                  <span className="grid h-full place-items-center text-3xl font-bold text-blue-700">
+                    {profile.name[0]}
+                  </span>
+                )}
+              </div>
+              {profile.own && (
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-blue-700 px-2 py-1.5 text-[11px] font-bold text-white hover:bg-blue-800">
+                    <Camera size={13} />
+                    Tirar foto
+                    <input
+                      className="hidden"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      capture="user"
+                      onChange={(event) => {
+                        void upload("avatar", event.target.files?.[0]);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50">
+                    <Upload size={13} />
+                    Enviar foto
+                    <input
+                      className="hidden"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={(event) => {
+                        void upload("avatar", event.target.files?.[0]);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
               )}
             </div>
             <div className="min-w-0 flex-1 pb-2">
